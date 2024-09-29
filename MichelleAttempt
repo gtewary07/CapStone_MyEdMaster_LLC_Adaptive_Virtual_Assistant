@@ -1,0 +1,104 @@
+import spacy
+import re
+
+# Load the English language model
+nlp = spacy.load("en_core_web_sm")
+
+
+def extract_numbers(text):
+    return [float(num) for num in re.findall(r'\d+(?:\.\d+)?', text)]
+
+
+def analyze_problem(problem):
+    doc = nlp(problem)
+    numbers = extract_numbers(problem)
+    entities = [ent.text for ent in doc.ents]
+    keywords = [token.text for token in doc if token.pos_ in ["NOUN", "VERB", "NUM"]]
+
+    return {
+        "numbers": numbers,
+        "entities": entities,
+        "keywords": keywords
+    }
+
+def calculate_proximity(correct, student):
+    if correct == 0:  # Avoid division by zero
+        return 100 if student == 0 else 0
+
+    percentage_diff = abs(student - correct) / correct * 100
+    return max(0, 100 - percentage_diff)  # Cap at 0% minimum
+
+
+def evaluate_answer(problem, correct_answer, student_answer):
+    problem_info = analyze_problem(problem)
+    correct_numbers = extract_numbers(correct_answer)
+    student_numbers = extract_numbers(student_answer)
+
+    if not correct_numbers or not student_numbers:
+        return False, "Unable to compare answers. Please provide numerical answers.", 0
+
+    correct_value = correct_numbers[0]
+    student_value = student_numbers[0]
+    #----------------------------------------------------------
+    # Determine the operation type based on the problem
+    if "gives" in problem or "how many left" in problem:
+        operation = "subtraction"
+    elif "saves" in problem and "after" in problem:
+        operation = "multiplication"
+    elif "area" in problem:
+        operation = "multiplication"
+    else:
+        operation = "unknown"
+
+    # Calculate the difference
+    difference = abs(correct_value - student_value)
+
+    # Provide tailored feedback based on the operation type and difference
+    if difference == 0:
+        return "Correct! Great job!"
+    elif difference == 1:
+        return "Great effort! It looks like you're on the right track. Try your calculations one more time!"
+    elif difference <= 5:
+        return f"You're getting there with your {operation}, but not quite right. Can you explain your thought process? Let's try again."
+    elif difference <= 10:
+        return f"Not quite. You're off by {difference}. Let's revisit {operation} together. For example, if the problem involves {operation}, how would you set it up? Let's try another question."
+    #------------------------------------------------------------
+
+def main():
+    problems = [
+        "Max has 5 apples. He gives 2 apples to his friend. How many apples does Max have now?",
+        "A rectangle has a length of 10 cm and a width of 5 cm. What is its area?",
+        "Sarah saves $20 each week. How much money will she have saved after 8 weeks?"
+    ]
+
+    answers = ["3", "50", "160"]
+
+    max_attempts = 3
+    for i, problem in enumerate(problems):
+        print(f"\nProblem {i + 1}:")
+        print(problem)
+
+        attempts = 0
+        correct = False
+
+        while attempts < max_attempts and not correct:
+            student_answer = input("Your answer: ")
+
+            feedback = evaluate_answer(problem, answers[i], student_answer)
+            print(feedback)
+
+            # Check if the answer was correct
+            if "Correct!" in feedback:
+                correct = True
+            else:
+                attempts += 1
+                if attempts < max_attempts:
+                    try_again = input("Would you like to try again? (yes/no): ").strip().lower()
+                    if try_again != 'yes':
+                        break
+        if not correct:
+            print("You've used all your attempts.")
+            print(f"The correct answer is: {answers[i]}")
+
+if __name__ == "__main__":
+    main()
