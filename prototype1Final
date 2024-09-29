@@ -4,45 +4,47 @@ import re
 # Load the English language model
 nlp = spacy.load("en_core_web_sm")
 
-
+# Function to extract numbers from a given text using regular expressions
 def extract_numbers(text):
-    return [float(num) for num in re.findall(r'\d+(?:\.\d+)?', text)]
+    return [float(num) for num in re.findall(r'\d+(?:\.\d+)?', text)]        # The regex finds integers or floating-point numbers in the text
 
-
+# Function to analyze the problem text by extracting numbers, named entities, and keywords (nouns, verbs, numbers)
 def analyze_problem(problem):
-    doc = nlp(problem)
+    doc = nlp(problem)        # Process the text with the spaCy model
     numbers = extract_numbers(problem)
     entities = [ent.text for ent in doc.ents]
     keywords = [token.text for token in doc if token.pos_ in ["NOUN", "VERB", "NUM"]]
 
     return {
-        "numbers": numbers,
-        "entities": entities,
-        "keywords": keywords
+        "numbers": numbers,        # Return the list of numbers found in the text
+        "entities": entities,      # Return the list of named entities
+        "keywords": keywords       # Return the list of important keywords
     }
 
-
+# Function to calculate the proximity between the correct answer and the student's answer
 def calculate_proximity(correct, student):
-    if correct == 0:  # Avoid division by zero
-        return 100 if student == 0 else 0
+    if correct == 0:      # Avoid division by zero
+        return 100 if student == 0 else 0        
 
     percentage_diff = abs(student - correct) / correct * 100
-    return max(0, 100 - percentage_diff)  # Cap at 0% minimum
+    return max(0, 100 - percentage_diff)      # Return proximity percentage, ensuring the value doesn't go below 0    
 
 
+# Function to evaluate the student's answer against the correct answer
 def evaluate_answer(problem, correct_answer, student_answer):
     problem_info = analyze_problem(problem)
     correct_numbers = extract_numbers(correct_answer)
     student_numbers = extract_numbers(student_answer)
-
+    
     if not correct_numbers or not student_numbers:
-        return False, "Unable to compare answers. Please provide numerical answers.", 0
+        return False, "Unable to compare answers. Please provide numerical answers.", 0    # Return error message if no numbers are found in either the correct or student's answers
 
     correct_value = correct_numbers[0]
     student_value = student_numbers[0]
 
     proximity = calculate_proximity(correct_value, student_value)
 
+    # Return different feedback based on how close the student's answer is to the correct answer
     if proximity == 100:
         return True, "Correct! Great job!", proximity
     elif proximity > 90:
@@ -54,23 +56,27 @@ def evaluate_answer(problem, correct_answer, student_answer):
 
 
 def main():
+    # Define a list of math problems and their corresponding correct answers
     problems = [
         "Max has 5 apples. He gives 2 apples to his friend. How many apples does Max have now?",
         "A rectangle has a length of 10 cm and a width of 5 cm. What is its area?",
         "Sarah saves $20 each week. How much money will she have saved after 8 weeks?"
     ]
 
-    answers = ["3", "50", "160"]
+    answers = ["3", "50", "160"]        # List of correct answers for each problem
 
+    # Iterate over each problem and present it to the student for evaluation
     for i, problem in enumerate(problems):
         print(f"\nProblem {i + 1}:")
         print(problem)
 
         student_answer = input("Your answer: ")
 
+        # Evaluate the student's answer and provide feedback
         is_correct, feedback, proximity = evaluate_answer(problem, answers[i], student_answer)
         print(feedback)
 
+        # If the answer is incorrect, provide additional analysis of the proble
         if not is_correct:
             print(f"Your answer was {proximity:.2f}% close to the correct answer.")
             print("Problem analysis:")
