@@ -1,0 +1,89 @@
+import spacy
+from spacy.matcher import Matcher
+from difflib import SequenceMatcher
+
+# Load the English language model
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    from spacy.cli import download
+
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
+
+# Initialize the matcher
+matcher = Matcher(nlp.vocab)
+
+# Define patterns for questions
+patterns = [
+    [{"LOWER": "how"}, {"LOWER": "can"}, {"LOWER": "you"}, {"LOWER": "solve"}, {"LOWER": "a"}, {"LOWER": "rational"},
+     {"LOWER": "expression"}],
+    [{"LOWER": "what"}, {"LOWER": "is"}, {"LOWER": "the"}, {"LOWER": "process"}, {"LOWER": "for"}, {"LOWER": "solving"},
+     {"LOWER": "a"}, {"LOWER": "rational"}, {"LOWER": "expression"}],
+    [{"LOWER": "could"}, {"LOWER": "you"}, {"LOWER": "explain"}, {"LOWER": "the"}, {"LOWER": "steps"}, {"LOWER": "in"},
+     {"LOWER": "solving"}, {"LOWER": "a"}, {"LOWER": "rational"}, {"LOWER": "expression"}],
+    [{"LOWER": "what"}, {"LOWER": "are"}, {"LOWER": "the"}, {"LOWER": "potential"}, {"LOWER": "solutions"},
+     {"LOWER": "to"}, {"LOWER": "a"}, {"LOWER": "rational"}, {"LOWER": "expression"}],
+    [{"LOWER": "can"}, {"LOWER": "a"}, {"LOWER": "rational"}, {"LOWER": "expression"}, {"LOWER": "yield"},
+     {"LOWER": "solutions"}, {"LOWER": "that"}, {"LOWER": "are"}, {"LOWER": "not"}, {"LOWER": "valid"}],
+    [{"LOWER": "what"}, {"LOWER": "is"}, {"LOWER": "the"}, {"LOWER": "initial"}, {"LOWER": "step"}, {"LOWER": "in"},
+     {"LOWER": "solving"}, {"LOWER": "a"}, {"LOWER": "rational"}, {"LOWER": "expression"}, {"LOWER": "equation"}],
+    [{"LOWER": "can"}, {"LOWER": "you"}, {"LOWER": "tell"}, {"LOWER": "me"}, {"LOWER": "about"}, {"LOWER": "solving"},
+     {"LOWER": "rational"}, {"LOWER": "expressions"}],
+]
+
+# Add patterns to the matcher
+for i, pattern in enumerate(patterns):
+    matcher.add(f"QUESTION_{i}", [pattern])
+
+# Define answers for the corresponding questions
+answers = {
+    "QUESTION_0": "To solve a rational expression, you typically set it equal to zero and find the values of the variable that make the expression equal to zero.",
+    "QUESTION_1": "To solve a rational expression, you typically set it equal to zero and find the values of the variable that make the expression equal to zero.",
+    "QUESTION_2": "To solve a rational expression: 1) Set it equal to zero. 2) Find the values of the variable that make the expression equal to zero. 3) Check for extraneous solutions.",
+    "QUESTION_3": "The solutions to a rational expression can be real numbers, complex numbers, or there may be no solution at all.",
+    "QUESTION_4": "Yes, when solving rational expressions, it's important to check for extraneous solutions that may arise from simplifying the equation.",
+    "QUESTION_5": "The first step in solving a rational expression equation is often to clear the equation of fractions by multiplying both sides by the least common denominator (LCD).",
+    "QUESTION_6": "Solving rational expressions involves setting them equal to zero, finding variable values that satisfy the equation, and checking for extraneous solutions."
+}
+
+
+def evaluate_answer(correct_answer, user_answer):
+    similarity = SequenceMatcher(None, correct_answer.lower(), user_answer.lower()).ratio()
+    if similarity >= 0.9:
+        return "Excellent! Your answer is correct."
+    elif similarity >= 0.7:
+        return "Good job! Your answer is very close to being correct."
+    elif similarity >= 0.5:
+        return "Not bad, but there's room for improvement. Your answer is partially correct."
+    else:
+        return "Your answer needs more work. Try reviewing the topic and answering again."
+
+
+def process_user_question(user_question):
+    doc = nlp(user_question.lower())
+    matches = matcher(doc)
+    if matches:
+        matched_question = nlp.vocab.strings[matches[0][0]]
+        response = answers.get(matched_question, "I'm not sure how to answer that specific question.")
+        return matched_question, response
+    else:
+        return None, "I'm sorry, I didn't understand that question. Could you please rephrase it?"
+
+
+print("Welcome to the Rational Expressions Assistant!")
+print("Ask me questions about solving rational expressions, or type 'quit' to exit.")
+
+while True:
+    user_input = input("\nYour question: ")
+    if user_input.lower() == 'quit':
+        print("Thank you for using the Rational Expressions Assistant. Goodbye!")
+        break
+
+    matched_question, answer = process_user_question(user_input)
+    print(f"Answer: {answer}")
+
+    if matched_question:
+        user_answer = input("Now, can you try to answer the question yourself? ")
+        evaluation = evaluate_answer(answers[matched_question], user_answer)
+        print(f"Evaluation: {evaluation}")
