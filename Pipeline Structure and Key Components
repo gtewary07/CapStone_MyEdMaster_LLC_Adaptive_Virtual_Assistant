@@ -1,0 +1,21 @@
+# Pipeline:
+# Metaflow is used to orchestrate the entire training and deployment process.
+# The pipeline includes steps for data processing, model training, and saving predictions, managed by Metaflow.
+
+# Data Validation:
+# Great Expectations validates input data to ensure quality, with checks for data type consistency, ranges, and missing values.
+
+# User Interaction:
+# A User class handles different question types and response preferences, customizing interactions based on user needs.
+
+# Key Components:
+# LSTM Model: An LSTM-based neural network is used for classifying questions.
+# Weak Supervision: Questions are labeled through rule-based and similarity-based techniques for efficient data labeling.
+# MLflow: Manages experiment tracking and model versioning to maintain model performance history.
+# Metaflow: Orchestrates the full pipeline from data processing to deployment, enhancing maintainability and scalability.
+# FastAPI & Streamlit: FastAPI serves as the backend for model predictions, while Streamlit provides a user-friendly frontend.
+# Great Expectations: Ensures data quality through validation steps in the pipeline.
+
+# Project Summary:
+# This project implements a scalable and maintainable pipeline for question classification, integrating robust tools for
+# data processing, model deployment, and user interaction.
