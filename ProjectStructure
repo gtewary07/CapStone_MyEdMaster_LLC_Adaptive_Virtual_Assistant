@@ -1,0 +1,70 @@
+# Project Structure
+
+# front.py: Contains the Streamlit frontend for user interaction.
+#           Users can input questions, and receive predictions directly from the frontend.
+
+# main.py: FastAPI backend for serving predictions.
+#          This script hosts the trained model and provides an API endpoint for predictions.
+
+# model_selection.ipynb: Jupyter notebook for model selection and training.
+#                        Contains exploratory analysis, model testing, and selection process for the LSTM model.
+
+# user_class.py: User class for handling different question types and user response preferences.
+#                This class helps in categorizing questions and customizing responses.
+
+# data_cleaning.py: Data cleaning and preprocessing script.
+#                   Cleans raw data and handles missing values or inconsistencies to ensure quality inputs.
+
+# data_processing.py: Data processing and labeling script.
+#                     Processes cleaned data, applies weak supervision, and labels questions by category.
+
+# model_api: Streamlit app for model inference.
+#            Separate interface for testing model predictions without using the main app interface.
+
+# model_training.py: Script for building and training the LSTM model.
+#                    Contains all training routines, model evaluation, and saving functionalities.
+
+# run_expectations: Great Expectations script for data validation.
+#                   Sets up validation tests to ensure data quality and detect anomalies in input data.
+
+# scoring_flow.py: Metaflow pipeline for model training and deployment.
+#                  Orchestrates data processing, model training, and deployment steps in a structured flow.
+
+# Functionality
+# -------------
+# Data Processing:
+# - The project integrates data from both CSV and JSON sources.
+# - Data is cleaned, processed, and labeled, using weak supervision techniques for added robustness.
+# - Questions are categorized into "what", "how", and "why" types to better align with the classification model.
+
+# Model Training:
+# - An LSTM-based neural network is used for question classification.
+# - Training is conducted on pre-processed and labeled data.
+# - MLflow is integrated for tracking experiments, monitoring metrics, and managing model versions.
+
+# Model Serving:
+# - FastAPI is used as a backend server to host the trained model.
+# - Streamlit frontend allows users to interact with the model by inputting questions and receiving classifications.
+
+# Pipeline:
+# - Metaflow is utilized to orchestrate the entire training and deployment process.
+# - Pipeline steps include data processing, model training, and saving final predictions for deployment.
+
+# Data Validation:
+# - Great Expectations is employed to validate input data for quality and consistency.
+# - Validation tests ensure the reliability of data at various stages.
+
+# User Interaction:
+# - A User class is designed to handle different types of questions ("what", "how", "why") and customize responses accordingly.
+
+# Key Components
+# --------------
+# LSTM Model: The core of the project, an LSTM-based neural network trained to classify questions into distinct types.
+# Weak Supervision: Labels questions using both rule-based and similarity-based techniques to improve classification.
+# MLflow: Tracks experiments, logs metrics, and manages versioned models.
+# Metaflow: Manages the end-to-end training and deployment pipeline.
+# FastAPI & Streamlit: The backend (FastAPI) serves predictions, while the frontend (Streamlit) enables user interaction.
+# Great Expectations: Ensures input data quality and validation at multiple stages.
+#
+# This project provides a complete solution for question classification, from data ingestion to model deployment.
+# The pipeline emphasizes maintainability and scalability, integrating best practices for data validation and model versioning.
