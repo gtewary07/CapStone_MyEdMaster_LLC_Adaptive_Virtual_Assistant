@@ -1,1 +1,11 @@
 Project Structure:
+  front.py: Streamlit frontend for user interaction.
+  main.py: FastAPI backend for serving predictions.
+  model_selection.ipynb: Jupyter notebook for model selection and training.
+  user_class.py: User class for handling question types and responses.
+  data_cleaning.py: Data cleaning and preprocessing script.
+  data_processing.py: Data processing and labeling script.
+  model_api: Streamlit app for model inference.
+  model_training.py: Script for building and training the LSTM model.
+  run_expectations: Great Expectations script for data validation.
+  scoring_flow.py: Metaflow pipeline for model training and deployment
