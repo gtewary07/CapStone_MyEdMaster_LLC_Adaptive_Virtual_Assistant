@@ -9,3 +9,43 @@ Project Structure:
   model_training.py: Script for building and training the LSTM model.
   run_expectations: Great Expectations script for data validation.
   scoring_flow.py: Metaflow pipeline for model training and deployment
+
+Functionality
+Data Processing:
+The project uses a combination of CSV and JSON data sources.
+Data is cleaned, processed, and labeled using weak supervision techniques.
+Questions are categorized into "what", "how", and "why" types.
+
+Model Training:
+An LSTM-based neural network is used for question classification.
+The model is trained on processed and labeled data.
+MLflow is used for experiment tracking and model versioning.
+
+Model Serving:
+A FastAPI backend serves the trained model for predictions.
+A Streamlit frontend allows users to input questions and receive classifications.
+
+Pipeline:
+Metaflow is used to orchestrate the entire training and deployment process.
+The pipeline includes steps for data processing, model training, and saving predictions.
+
+Data Validation:
+Great Expectations is used to validate the input data and ensure data quality.
+
+User Interaction:
+A User class is implemented to handle different question types and response preferences.
+
+Key Components
+LSTM Model: The core of the project is an LSTM-based neural network for question classification.
+
+Weak Supervision: Questions are labeled using a combination of rule-based and similarity-based techniques.
+
+MLflow: Used for experiment tracking and model versioning.
+
+Metaflow: Orchestrates the entire training and deployment pipeline.
+
+FastAPI & Streamlit: Provide the backend and frontend for model serving and user interaction.
+
+Great Expectations: Ensures data quality and validation.
+
+This project implements a comprehensive pipeline for question classification, from data processing to model deployment, with a focus on maintainability and scalability.
