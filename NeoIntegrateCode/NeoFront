@@ -1,0 +1,66 @@
+import os
+import pickle
+import numpy as np
+import pandas as pd
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import spacy
+from sklearn.metrics.pairwise import cosine_similarity
+
+app = FastAPI()
+
+# Load the tokenizer and model
+with open('tokenizer.pkl', 'rb') as f:
+    tokenizer = pickle.load(f)
+model = load_model('question_classifier.keras')
+
+# Load spaCy model
+nlp = spacy.load("en_core_web_sm")
+
+# Load question-answer pairs
+qa_pairs = pd.read_excel('qa_pairs.xlsx')
+
+class QuestionInput(BaseModel):
+    question: str
+
+class PredictionOutput(BaseModel):
+    prediction: list
+    system_response: str
+    similarity_score: float
+
+def predict_question(question: str):
+    sequences = tokenizer.texts_to_sequences([question])
+    X_new = pad_sequences(sequences, maxlen=10)
+    prediction = model.predict(X_new)[0]
+    return prediction.tolist()
+
+def get_system_response(question: str):
+    # Simple retrieval based on exact match (you can improve this)
+    matching_row = qa_pairs[qa_pairs['Question'].str.lower() == question.lower()]
+    if not matching_row.empty:
+        return matching_row.iloc[0]['Answer']
+    return "I'm sorry, I don't have a specific answer for that question."
+
+def calculate_similarity(text1: str, text2: str):
+    doc1 = nlp(text1)
+    doc2 = nlp(text2)
+    return doc1.similarity(doc2)
+
+@app.post("/predict", response_model=PredictionOutput)
+async def predict(input_data: QuestionInput):
+    question = input_data.question
+    prediction_vector = predict_question(question)
+    system_response = get_system_response(question)
+    similarity_score = calculate_similarity(question, system_response)
+
+    return {
+        "prediction": prediction_vector,
+        "system_response": system_response,
+        "similarity_score": similarity_score
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
