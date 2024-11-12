@@ -1,0 +1,154 @@
+import os
+import pickle
+import numpy as np
+import pandas as pd
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import spacy
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Initialize FastAPI app
+app = FastAPI()
+
+# Load the pre-trained spaCy model for natural language processing (NLP)
+nlp = spacy.load("en_core_web_md")
+
+# Load a CSV file containing pre-defined question-answer pairs for matching
+qa_pairs = pd.read_csv('qa_pairs.csv')
+
+# Load the saved tokenizer (for converting text to sequences) from a pickle file
+with open('tokenizer.pkl', 'rb') as f:
+    tokenizer = pickle.load(f)
+
+# Load the pre-trained Keras model for question classification (predicting question types)
+model = load_model('question_classifier.keras')
+
+
+# Function to find the most similar pre-defined question from the dataset based on cosine similarity
+def get_most_similar_question(user_question, questions):
+    # Convert the user's question into a vector representation using spaCy
+    user_vec = nlp(user_question).vector
+
+    # Convert each question in the dataset into a vector representation using spaCy
+    question_vecs = np.array([nlp(str(q)).vector for q in questions])
+
+    # Compute cosine similarities between the user's question and each question in the dataset
+    similarities = cosine_similarity([user_vec], question_vecs)[0]
+
+    # Find the most similar question's index and the similarity score
+    max_similarity = np.max(similarities)
+    most_similar_index = np.argmax(similarities)
+    return max_similarity, most_similar_index
+
+
+# Pydantic models to structure the input and output data for API endpoints
+class QuestionInput(BaseModel):
+    question: str
+
+class PredictionOutput(BaseModel):
+    prediction: list
+    system_response: str
+    similarity_score: float
+
+class UnderstandingInput(BaseModel):
+    original_question: str
+    system_response: str
+    user_answer: str
+
+class UnderstandingOutput(BaseModel):
+    understanding_score: float
+
+
+# Function to fetch the most relevant system response based on the user's question
+def get_system_response(question: str) -> tuple:
+    # Get the most similar question and its similarity score
+    max_similarity, most_similar_index = get_most_similar_question(question, qa_pairs['Question'])
+
+    # If similarity is above a threshold (0.7), return the corresponding system response
+    if max_similarity > 0.7:
+        return qa_pairs.iloc[most_similar_index]['System_Response'], max_similarity
+    else:
+        # If no match is found, return a default response
+        return "I'm sorry, I don't have a specific answer for that question.", max_similarity
+
+
+# Function to predict the question type using the pre-trained Keras model
+def predict_question(question: str):
+    # Convert the question into sequences (list of integers)
+    sequences = tokenizer.texts_to_sequences([question])
+
+    # Pad sequences to ensure they are of the same length (10 here)
+    X_new = pad_sequences(sequences, maxlen=10)
+
+    # Use the model to make a prediction and return it as a list
+    prediction = model.predict(X_new)[0]
+    return prediction.tolist()
+
+
+# API endpoint for predicting a question's classification and providing a system response
+@app.post("/predict", response_model=PredictionOutput)
+async def predict(input_data: QuestionInput):
+    try:
+        # Extract the question from the input data
+        question = input_data.question
+        print(f"Received question: {question}")
+
+        # Get the predicted vector for the question type
+        prediction_vector = predict_question(question)
+        print(f"Prediction vector: {prediction_vector}")
+
+        # Get the system's response based on the most similar pre-defined question
+        system_response, similarity_score = get_system_response(question)
+        print(f"System response: {system_response}")
+        print(f"Similarity score: {similarity_score}")
+
+        # Return the prediction, system response, and similarity score in the response
+        return {
+            "prediction": prediction_vector,
+            "system_response": system_response,
+            "similarity_score": similarity_score
+        }
+    except Exception as e:
+        # Handle errors and return a 500 status code with the error message
+        print(f"Error in prediction: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+
+# API endpoint to assess the user's understanding of a system response
+@app.post("/assess_understanding", response_model=UnderstandingOutput)
+async def assess_understanding(input_data: UnderstandingInput):
+    try:
+        # Extract original question, system response, and user answer from input data
+        original_question = input_data.original_question
+        system_response = input_data.system_response
+        user_answer = input_data.user_answer
+
+        # Combine the original question and the system response as reference text
+        reference_text = f"{original_question} {system_response}"
+
+        # Convert both the reference text and user answer into vector representations
+        reference_vec = nlp(reference_text).vector
+        user_vec = nlp(user_answer).vector
+
+        # Calculate cosine similarity between reference text and user answer
+        similarity_score = cosine_similarity([reference_vec], [user_vec])[0][0]
+
+        # Normalize the similarity score to a 0-100 scale for the understanding score
+        understanding_score = similarity_score * 100
+
+        # Return the understanding score in the response
+        return {"understanding_score": round(understanding_score, 2)}
+
+    except Exception as e:
+        # Handle errors and return a 500 status code with the error message
+        print(f"Error in assessing understanding: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Assessment failed: {str(e)}")
+
+
+# Run the FastAPI application using Uvicorn server
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
