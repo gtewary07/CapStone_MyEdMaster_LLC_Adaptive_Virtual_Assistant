@@ -6,7 +6,7 @@ import spacy
 from groq import Groq
 # At the top of NeoMain.py
 import os
-os.environ["GROQ_API_KEY"] = "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"
+os.environ["GROQ_API_KEY"] = ""
 
 app = FastAPI()
 
