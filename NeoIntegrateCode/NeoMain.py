@@ -14,7 +14,7 @@ app = FastAPI()
 nlp = spacy.load("en_core_web_md")
 
 # Initialize Groq client with API key
-GROQ_API_KEY = "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"
+GROQ_API_KEY = ""
 client = Groq(api_key=GROQ_API_KEY)
 
 
