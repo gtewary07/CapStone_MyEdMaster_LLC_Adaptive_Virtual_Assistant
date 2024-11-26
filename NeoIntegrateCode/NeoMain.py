@@ -8,6 +8,7 @@ from groq import Groq
 import os
 os.environ["GROQ_API_KEY"] = ""
 
+# FastAPI for handling HTTP requests
 app = FastAPI()
 
 # Load spaCy model
@@ -18,12 +19,10 @@ GROQ_API_KEY = ""
 client = Groq(api_key=GROQ_API_KEY)
 
 
-
 class QuestionInput(BaseModel):
     question: str
     age: Optional[int] = None
     knowledge_level: Optional[str] = None
-
 
 class PredictionOutput(BaseModel):
     system_response: str
@@ -39,6 +38,7 @@ class UnderstandingOutput(BaseModel):
     understanding_score: float
 
 
+# Helper function to generate a personalized prompt for the model
 def get_personalized_prompt(question: str, age: Optional[int], knowledge_level: Optional[str]) -> str:
     base_prompt = f"Question: {question}\n"
     if age:
@@ -49,15 +49,18 @@ def get_personalized_prompt(question: str, age: Optional[int], knowledge_level: 
     return base_prompt
 
 
+# Endpoint for generating personalized predictions
 @app.post("/predict", response_model=PredictionOutput)
 async def predict(input_data: QuestionInput):
     try:
+        # Create a personalized prompt for the user
         prompt = get_personalized_prompt(
             input_data.question,
             input_data.age,
             input_data.knowledge_level
         )
 
+        # Generate a response using the Groq client
         completion = client.chat.completions.create(
             model="mixtral-8x7b-32768",
             messages=[
@@ -80,13 +83,18 @@ async def predict(input_data: QuestionInput):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
+# Endpoint for assessing user understanding
 @app.post("/assess_understanding", response_model=UnderstandingOutput)
 async def assess_understanding(input_data: UnderstandingInput):
     try:
+        # Combine the original question and system response as the reference text
         reference_text = f"{input_data.original_question} {input_data.system_response}"
+
+        # Compute vector representations for the reference text and user answer
         reference_vec = nlp(reference_text).vector
         user_vec = nlp(input_data.user_answer).vector
 
+        # Calculate similarity using cosine similarity
         from sklearn.metrics.pairwise import cosine_similarity
         similarity_score = cosine_similarity([reference_vec], [user_vec])[0][0]
         understanding_score = similarity_score * 100
@@ -94,6 +102,7 @@ async def assess_understanding(input_data: UnderstandingInput):
         return {"understanding_score": round(understanding_score, 2)}
 
     except Exception as e:
+        # Log and handle any errors during assessment
         print(f"Error in assessing understanding: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Assessment failed: {str(e)}")
 
