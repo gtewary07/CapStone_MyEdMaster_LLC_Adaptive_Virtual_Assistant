@@ -1,0 +1,89 @@
+# NeoFront.py
+import streamlit as st  # Importing Streamlit for building the web interface
+import requests  # Importing requests to send HTTP requests to the backend API
+
+# Initialize session state to store question and system response between reruns
+if 'question' not in st.session_state:
+    st.session_state.question = ""  # If no question is stored, initialize as an empty string
+if 'system_response' not in st.session_state:
+    st.session_state.system_response = ""  # If no system response is stored, initialize as an empty string
+
+# Title of the Streamlit web page
+st.title("Personalized Question-Answering System")
+
+# Input fields for user to enter their question, age, and knowledge level
+question = st.text_input("Enter your question:", value=st.session_state.question)  # Text input for the question
+age = st.number_input("Enter your age:", min_value=1, max_value=120)  # Number input for age (between 1 and 120)
+knowledge_level = st.selectbox(  # Dropdown to select the knowledge level
+    "Select your knowledge level:",
+    ["beginner", "intermediate", "advanced"]
+)
+
+# When the user clicks the "Submit" button, this code is executed
+if st.button("Submit"):
+    if question.strip():  # Check if the question is not empty
+        try:
+            # Send a POST request to the backend API for predicting the answer
+            response = requests.post(
+                "http://127.0.0.1:8000/predict",  # URL of the backend API
+                json={  # JSON data to be sent to the API
+                    "question": question,
+                    "age": age,
+                    "knowledge_level": knowledge_level
+                }
+            )
+
+            # Check if the response from the API is successful (status code 200)
+            if response.status_code == 200:
+                result = response.json()  # Parse the JSON response
+                st.session_state.system_response = result.get('system_response', 'No response available')  # Store system response in session state
+                st.session_state.question = question  # Store the question in session state
+
+                st.info(f"System Response: {st.session_state.system_response}")  # Display the system response
+            else:
+                st.error(f"Error: {response.status_code} - {response.text}")  # Show error if the API request fails
+
+        except requests.RequestException as e:  # Catch any request exceptions
+            st.error(f"Request failed: {str(e)}")  # Display the error message
+    else:
+        st.error("Please enter a valid question.")  # If the question is empty, show an error
+
+# Input field for the user to explain the answer in their own words
+user_answer = st.text_area("Please explain the answer in your own words:")
+
+# When the user clicks the "Check Understanding" button, this code is executed
+if st.button("Check Understanding"):
+    if user_answer.strip():  # Check if the user has entered an explanation
+        try:
+            # Send a POST request to assess the user's understanding of the system's response
+            understanding_response = requests.post(
+                "http://127.0.0.1:8000/assess_understanding",  # URL of the backend API to assess understanding
+                json={  # JSON data to be sent to the API
+                    "original_question": st.session_state.question,
+                    "system_response": st.session_state.system_response,
+                    "user_answer": user_answer
+                }
+            )
+
+            # Check if the response from the understanding assessment API is successful
+            if understanding_response.status_code == 200:
+                understanding_result = understanding_response.json()  # Parse the JSON response
+                understanding_score = understanding_result.get('understanding_score', 'N/A')  # Get the understanding score
+
+                st.success(f"Your understanding score: {understanding_score}%")  # Display the understanding score
+
+                # Display different messages based on the user's understanding score
+                if understanding_score > 80:
+                    st.balloons()  # Show balloons for good performance
+                    st.success("Great job! You have a good understanding of the answer.")  # Positive feedback
+                elif understanding_score > 50:
+                    st.info("You have a decent understanding, but there's room for improvement.")  # Room for improvement message
+                else:
+                    st.warning("It seems you might need to review the answer. Try rephrasing it in your own words.")  # Suggest improvement message
+            else:
+                st.error(f"Error: {understanding_response.status_code} - {understanding_response.text}")  # Show error if the API request fails
+
+        except requests.RequestException as e: 
+            st.error(f"Request failed: {str(e)}")  
+    else:
+        st.error("Please provide your explanation before checking understanding.")  # Prompt user to enter explanation
