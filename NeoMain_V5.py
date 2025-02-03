@@ -12,7 +12,7 @@ client = Groq(
     api_key="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"
 )
 
-
+# Detects plagiarism by comparing the user's response with the system-generated answer
 def check_response_similarity(system_response, user_response):
     """Check if user response is copied from system response"""
     # Clean responses for comparison
@@ -30,7 +30,7 @@ def check_response_similarity(system_response, user_response):
 
     return similarity > 0.8
 
-
+# Dynamically provides feedback based on the response category and score
 def generate_improvement_feedback(category, score):
     """Generate specific improvement suggestions based on category and score"""
     feedback = {
@@ -77,7 +77,7 @@ To correct your response:
 
     return feedback.get(category, "Please provide a valid response to receive improvement feedback.")
 
-
+# Extracts and rounds off the evaluation score from the response dictionary.
 def calculate_score(evaluation):
     """Calculate score based on the evaluation response."""
     try:
@@ -91,7 +91,7 @@ def calculate_score(evaluation):
     except Exception as e:
         return 0.000
 
-
+# Evaluates the user's response, checking for plagiarism and assigning a category with an improvement suggestion.
 def evaluate_response(system_answer, user_response):
     """Enhanced evaluation with plagiarism check and improvement feedback"""
     # First check for copying
@@ -142,7 +142,8 @@ def evaluate_response(system_answer, user_response):
 
     except Exception as e:
         return f"Evaluation error: {str(e)}"
-
+        
+# Sets up session variables in Streamlit for tracking user data, scores, and evaluations.
 def init_session_state():
     """Initialize session state variables"""
     if 'logged_in' not in st.session_state:
@@ -156,6 +157,7 @@ def init_session_state():
     if 'evaluation_history' not in st.session_state:
         st.session_state.evaluation_history = []
 
+# Stores user registration details securely (password is hashed before saving)
 def save_user_data(username, password, age, interest, experience):
     """Save user data to a JSON file"""
     try:
@@ -180,6 +182,7 @@ def save_user_data(username, password, age, interest, experience):
         st.error(f"Error saving user data: {str(e)}")
         return False
 
+# Checks user login credentials by matching hashed passwords from the stored data
 def verify_user(username, password):
     """Verify user credentials"""
     try:
@@ -195,6 +198,7 @@ def verify_user(username, password):
         st.error(f"Error verifying user: {str(e)}")
         return None
 
+# Generates a personalized AI response based on user details, retrying up to 3 times if an error occurs
 def get_groq_response(prompt, age, interest, experience, retries=3, delay=2):
     """Enhanced prompt generation with user profile"""
     system_prompt = f"""You are a tutor for a {age} year old person interested in {interest} with {experience} experience.
@@ -216,6 +220,7 @@ def get_groq_response(prompt, age, interest, experience, retries=3, delay=2):
                 continue
             return f"An error occurred: {str(e)}"
 
+# Handles user authentication, including login and registration via Streamlit forms
 def login_page():
     """Display login page"""
     st.title("Interactive Learning System")
