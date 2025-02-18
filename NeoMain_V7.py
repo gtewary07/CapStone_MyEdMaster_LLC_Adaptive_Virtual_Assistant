@@ -95,14 +95,20 @@ def extract_rationale_procedure_facts(user_response):
     Naively extract rationale, procedure, and facts from user response.
     """
     response_lower = user_response.lower()
+
+    # Check if the response contains rationale-related keywords
     if "because" in response_lower or "reason" in response_lower:
         rationale = "Identified a rationale statement (e.g., 'because', 'reason')."
     else:
         rationale = "No rationale detected."
+
+    # Check if the response contains procedure-related keywords
     if "steps" in response_lower or "procedure" in response_lower or "how to" in response_lower:
         procedure = "Identified a procedure/method statement."
     else:
         procedure = "No procedure detected."
+
+    # Check if the response contains factual information keywords
     if "fact" in response_lower or "data" in response_lower or "statistic" in response_lower:
         facts = "Identified factual information based on 'fact', 'data', or 'statistic'."
     else:
@@ -114,6 +120,8 @@ def evaluate_response(system_answer, user_response):
     """Enhanced evaluation with plagiarism check, improvement feedback,
        plus rationale, procedure, facts, and understanding level (1 to 5).
     """
+
+    # Check if the response is too similar to the system answer (possible plagiarism)
     if check_response_similarity(system_answer, user_response):
         return {
             "Category": "0",
@@ -125,8 +133,11 @@ def evaluate_response(system_answer, user_response):
             "Facts": "",
             "UnderstandingLevel": 0
         }
+
+    # Extract rationale, procedure, and facts from the response
     rationale, procedure, facts = extract_rationale_procedure_facts(user_response)
     try:
+        # Assign score and category based on detected keywords
         if any(term in user_response.lower() for term in [
             'fpga', 'advanced', 'protocols', 'standards',
             'cross-compilation', 'machine learning'
@@ -151,6 +162,8 @@ def evaluate_response(system_answer, user_response):
             score = round(25.000 + (len(user_response.split()) / 100), 3)
             category = "4"
             explanation = "⚠️ Contains technical inaccuracies or misconceptions"
+
+        # Mapping category to understanding level
         category_to_level = {
             "0": 0,
             "1": 4,
