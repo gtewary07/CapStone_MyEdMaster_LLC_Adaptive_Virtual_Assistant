@@ -280,7 +280,7 @@ def generate_assessment_questions(content):
         questions = []
     return questions
 
-
+# Function to generate direct questions for a topic
 def generate_direct_questions(content, num_questions=5, question_distribution=None):
     """
     Generate a set of direct questions (not multiple choice) to assess understanding
