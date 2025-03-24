@@ -1,0 +1,879 @@
+import os
+from groq import Groq
+import streamlit as st
+import time
+import json
+import hashlib
+import pandas as pd
+from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+import io
+import base64
+
+# Initialize Groq client
+client = Groq(
+    api_key="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"
+)
+
+
+############################################
+# Utility Functions for Evaluation & Feedback
+############################################
+
+def check_response_similarity(system_response, user_response):
+    """Check if user response is copied from system response"""
+    system_clean = " ".join(system_response.lower().split())
+    user_clean = " ".join(user_response.lower().split())
+    if system_clean == user_clean:
+        return True
+    system_words = set(system_clean.split())
+    user_words = set(user_clean.split())
+    similarity = len(system_words.intersection(user_words)) / len(system_words)
+    return similarity > 0.8
+
+
+def generate_improvement_feedback(category, score):
+    """Generate specific improvement suggestions based on category and score"""
+    feedback = {
+        "0": """
+🚫 Plagiarism Detected:
+- Your response appears to be copied from the system answer.
+- Please rewrite the answer in your own words.
+- Demonstrate your understanding through original explanation.
+- Try to connect concepts with your own experiences.
+""",
+        "1": f"""
+✅ Strong Understanding (Score: {score:.3f}/100):
+- Good grasp of core concepts.
+To improve further:
+- Add more specific examples from your experience.
+- Explain practical applications.
+- Connect concepts to real-world scenarios.
+""",
+        "2": f"""
+📝 Basic Understanding (Score: {score:.3f}/100):
+To improve your response:
+- Include missing key concepts.
+- Provide more detailed technical explanations.
+- Add examples from your professional experience.
+- Focus on system components and their relationships.
+""",
+        "3": f"""
+🌟 Advanced Understanding (Score: {score:.3f}/100):
+Excellent technical knowledge! To perfect your response:
+- Structure your answer more clearly.
+- Prioritize the most relevant information.
+- Consider adding industry-specific examples.
+- Connect concepts to your professional experience.
+""",
+        "4": f"""
+⚠️ Needs Improvement (Score: {score:.3f}/100):
+To correct your response:
+- Review the fundamental concepts.
+- Focus on accuracy of technical details.
+- Avoid assumptions.
+- Start with basic definitions.
+- Connect ideas logically.
+"""
+    }
+    return feedback.get(category, "Please provide a valid response to receive improvement feedback.")
+
+
+def calculate_score(evaluation):
+    """Calculate score based on the evaluation response."""
+    try:
+        if isinstance(evaluation, dict):
+            score = evaluation.get("Score", 0)
+            return round(score, 3)
+        elif isinstance(evaluation, str):
+            return 0.000
+        else:
+            return 0.000
+    except Exception as e:
+        return 0.000
+
+
+def determine_topic_complexity(content):
+    """
+    Analyze the content to determine its complexity and suggest an appropriate number of questions.
+    Returns a complexity level (1-5) and recommended number of questions.
+    """
+    prompt = (
+        f"Analyze the following educational content and determine its complexity on a scale of 1-5, "
+        f"where 1 is very simple and 5 is very complex. Based on the complexity, suggest an appropriate "
+        f"number of questions to test understanding (2-3 questions for simple topics, 4-6 for moderately "
+        f"complex topics, and 7-10 for very complex topics). Also, suggest a distribution of question types "
+        f"(rationale, factual, procedural) that would be appropriate for this content. "
+        f"Return your response in JSON format with keys 'complexity_level', 'recommended_questions', and "
+        f"'question_distribution' (an object with keys 'rationale', 'factual', 'procedural' and values as percentages). "
+        f"Content: {content[:4000]}"  # Limit content length to avoid token issues
+    )
+
+    response, _ = get_groq_response(
+        prompt,
+        st.session_state.user_data['age'],
+        st.session_state.user_data['interest'],
+        st.session_state.user_data['experience'],
+        conversation_history=None
+    )
+
+    try:
+        # Extract JSON from response
+        start_index = response.find('{')
+        end_index = response.rfind('}')
+        if start_index != -1 and end_index != -1:
+            json_string = response[start_index:end_index + 1]
+            analysis = json.loads(json_string)
+        else:
+            analysis = json.loads(response)
+
+        return {
+            'complexity_level': analysis.get('complexity_level', 3),
+            'recommended_questions': analysis.get('recommended_questions', 5),
+            'question_distribution': analysis.get('question_distribution',
+                                                  {'rationale': 33, 'factual': 33, 'procedural': 34})
+        }
+    except Exception as e:
+        st.error(f"Error analyzing topic complexity: {str(e)}")
+        return {
+            'complexity_level': 3,
+            'recommended_questions': 5,
+            'question_distribution': {'rationale': 33, 'factual': 33, 'procedural': 34}
+        }
+
+
+def create_understanding_radar_chart(report):
+    """
+    Create a radar chart visualizing understanding across different dimensions.
+    Returns the chart as a base64 encoded image.
+    """
+    categories = ['Rationale', 'Factual', 'Procedural']
+    values = [
+        report.get('rationale_level', 0),
+        report.get('factual_level', 0),
+        report.get('procedural_level', 0)
+    ]
+
+    # Close the plot
+    N = len(categories)
+    angles = [n / float(N) * 2 * np.pi for n in range(N)]
+    angles += angles[:1]  # Close the loop
+
+    values += values[:1]  # Close the loop
+
+    # Create the radar chart
+    fig, ax = plt.subplots(figsize=(10, 8), subplot_kw=dict(polar=True))
+
+    # Set the background color
+    fig.patch.set_facecolor('#f0f2f6')
+    ax.set_facecolor('#f0f2f6')
+
+    # Draw one axis per variable + add labels
+    plt.xticks(angles[:-1], categories, color='black', size=14, fontweight='bold')
+
+    # Draw ylabels (levels from 1 to 5)
+    ax.set_rlabel_position(0)
+    plt.yticks([1, 2, 3, 4, 5], ['1', '2', '3', '4', '5'], color="grey", size=12)
+    plt.ylim(0, 5)
+
+    # Plot data
+    ax.plot(angles, values, linewidth=3, linestyle='solid', color='#1f77b4')
+
+    # Fill area
+    ax.fill(angles, values, '#1f77b4', alpha=0.25)
+
+    # Add a title
+    plt.title(f"Understanding Level Profile", size=18, color='black', y=1.1, fontweight='bold')
+
+    # Add level descriptions
+    level_descriptions = {
+        1: "Minimal",
+        2: "Basic",
+        3: "Moderate",
+        4: "Good",
+        5: "Excellent"
+    }
+
+    # Add explanation text
+    fig.text(0.5, 0.01,
+             "This chart shows your understanding level in three dimensions.\nHigher values (closer to 5) indicate stronger understanding.",
+             ha='center', fontsize=12)
+
+    # Save the figure to a BytesIO object
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=120)
+    buf.seek(0)
+
+    # Encode the image to base64
+    img_str = base64.b64encode(buf.read()).decode('utf-8')
+
+    plt.close(fig)
+
+    return img_str
+
+
+############################################
+# Functions for LLM Interaction and Quiz Generation
+############################################
+
+def get_groq_response(prompt, age, interest, experience, conversation_history=None, retries=3, delay=2):
+    """
+    Get response from Groq with optional conversation chaining.
+    If conversation_history is provided, the new user message is appended.
+    Otherwise, a new conversation is started with a system prompt.
+    """
+    if conversation_history is None:
+        conversation_history = [
+            {"role": "system",
+             "content": f"You are a tutor for a {age} year old person interested in {interest} with {experience} experience. Adjust your explanation accordingly and provide clear, age-appropriate information that aligns with their professional background."}
+        ]
+    conversation_history.append({"role": "user", "content": prompt})
+    for attempt in range(retries):
+        try:
+            chat_completion = client.chat.completions.create(
+                messages=conversation_history,
+                model="llama-3.3-70b-versatile"
+            )
+            assistant_message = chat_completion.choices[0].message.content
+            conversation_history.append({"role": "assistant", "content": assistant_message})
+            return assistant_message, conversation_history
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(delay)
+                continue
+            return f"An error occurred: {str(e)}", conversation_history
+
+
+def generate_assessment_questions(content):
+    """
+    Use the LLM to generate a short multiple-choice quiz (3 questions)
+    based on the provided content. The output is expected to be a JSON array
+    where each element is a dict with keys: 'question', 'options', and 'answer'.
+    """
+    prompt = (
+        f"Generate 3 multiple choice questions to assess understanding of the following content. "
+        f"Format your response as a JSON array where each element is an object with keys 'question', "
+        f"'options' (a list of answer choices), and 'answer' (the correct answer, which should match one of the options). "
+        f"Content: {content}"
+    )
+    response, _ = get_groq_response(
+        prompt,
+        st.session_state.user_data['age'],
+        st.session_state.user_data['interest'],
+        st.session_state.user_data['experience'],
+        conversation_history=None  # fresh conversation for quiz generation
+    )
+    # Extract the JSON portion from the response
+    start_index = response.find('[')
+    end_index = response.rfind(']')
+    if start_index != -1 and end_index != -1:
+        json_string = response[start_index:end_index + 1]
+    else:
+        json_string = response
+    try:
+        questions = json.loads(json_string)
+        if not isinstance(questions, list):
+            questions = []
+    except Exception as e:
+        st.error("Error parsing quiz questions. The response was: " + response)
+        questions = []
+    return questions
+
+
+def generate_direct_questions(content, num_questions=5, question_distribution=None):
+    """
+    Generate a set of direct questions (not multiple choice) to assess understanding
+    of the provided content. Returns a list of dictionaries with question, expected_answer,
+    and question_type (rationale, factual, or procedural).
+    """
+    if question_distribution is None:
+        question_distribution = {'rationale': 33, 'factual': 33, 'procedural': 34}
+
+    # Calculate number of questions of each type
+    rationale_count = max(1, round(num_questions * question_distribution['rationale'] / 100))
+    factual_count = max(1, round(num_questions * question_distribution['factual'] / 100))
+    procedural_count = max(1, num_questions - rationale_count - factual_count)
+
+    prompt = (
+        f"Based on the following content, generate {num_questions} specific questions to assess "
+        f"understanding of key concepts. Questions should be distributed across these types:\n"
+        f"- {rationale_count} Rationale questions (why something happens, reasons, causes, etc.)\n"
+        f"- {factual_count} Factual questions (definitions, dates, names, specific information)\n"
+        f"- {procedural_count} Procedural questions (how to do something, steps, methods)\n\n"
+        f"For each question, provide an expected answer or key points that should be included in a good answer. "
+        f"Format your response as a JSON array where each element is an object with keys 'question', "
+        f"'expected_answer', and 'question_type' (must be 'rationale', 'factual', or 'procedural'). "
+        f"Content: {content[:4000]}"  # Limit content length to avoid token issues
+    )
+
+    response, _ = get_groq_response(
+        prompt,
+        st.session_state.user_data['age'],
+        st.session_state.user_data['interest'],
+        st.session_state.user_data['experience'],
+        conversation_history=None  # fresh conversation for questions generation
+    )
+
+    try:
+        # First, check if the response contains markdown code blocks and extract the content
+        if '```' in response:
+            # Extract content between code blocks
+            start_index = response.find('```') + 3
+            # Find the language identifier (if any) and skip to the next line
+            if start_index < len(response) and response[start_index:].find('\n') != -1:
+                start_index = response.find('\n', start_index) + 1
+            end_index = response.rfind('```')
+            if start_index != -1 and end_index != -1 and start_index < end_index:
+                json_string = response[start_index:end_index].strip()
+            else:
+                # If we can't properly extract from code blocks, try normal JSON extraction
+                start_index = response.find('[')
+                end_index = response.rfind(']')
+                if start_index != -1 and end_index != -1:
+                    json_string = response[start_index:end_index + 1]
+                else:
+                    json_string = response
+        else:
+            # Try to extract just the JSON array if there are no code blocks
+            start_index = response.find('[')
+            end_index = response.rfind(']')
+            if start_index != -1 and end_index != -1:
+                json_string = response[start_index:end_index + 1]
+            else:
+                json_string = response
+
+        # Parse the JSON
+        questions = json.loads(json_string)
+        if not isinstance(questions, list):
+            questions = []
+
+        # Validate and clean up the questions
+        valid_questions = []
+        for q in questions:
+            if all(k in q for k in ['question', 'expected_answer', 'question_type']):
+                if q['question_type'] not in ['rationale', 'factual', 'procedural']:
+                    q['question_type'] = 'factual'  # Default to factual if invalid type
+                valid_questions.append(q)
+
+        return valid_questions
+    except Exception as e:
+        st.error(f"Error parsing direct questions: {str(e)}. The response was: {response}")
+
+        # Fallback: try to manually extract questions if JSON parsing fails
+        try:
+            fallback_questions = []
+            if "question" in response and "expected_answer" in response:
+                lines = response.split('\n')
+                current_question = {}
+
+                for line in lines:
+                    if '"question":' in line:
+                        if current_question and 'question' in current_question:
+                            fallback_questions.append(current_question)
+                        current_question = {'question': line.split('"question":')[1].strip().strip('",').strip('"')}
+                    elif '"expected_answer":' in line and current_question:
+                        current_question['expected_answer'] = line.split('"expected_answer":')[1].strip().strip(
+                            '",').strip('"')
+                    elif '"question_type":' in line and current_question:
+                        qtype = line.split('"question_type":')[1].strip().strip('",').strip('"')
+                        if qtype not in ['rationale', 'factual', 'procedural']:
+                            qtype = 'factual'
+                        current_question['question_type'] = qtype
+
+                if current_question and 'question' in current_question and 'expected_answer' in current_question:
+                    if 'question_type' not in current_question:
+                        current_question['question_type'] = 'factual'
+                    fallback_questions.append(current_question)
+
+                if fallback_questions:
+                    return fallback_questions
+
+            # If all else fails, create some simple questions
+            return [
+                {
+                    "question": "What is the main concept discussed in this content?",
+                    "expected_answer": "The main concept is about understanding the key elements of the topic.",
+                    "question_type": "factual"
+                },
+                {
+                    "question": "Why is this topic important?",
+                    "expected_answer": "This topic is important because it helps us understand fundamental principles.",
+                    "question_type": "rationale"
+                },
+                {
+                    "question": "How would you apply this knowledge in a real situation?",
+                    "expected_answer": "You would apply this knowledge by following specific steps and procedures.",
+                    "question_type": "procedural"
+                }
+            ]
+        except Exception as fallback_error:
+            st.error(f"Fallback extraction also failed: {str(fallback_error)}")
+            # Return minimal questions as last resort
+            return [
+                {
+                    "question": "What did you learn from this content?",
+                    "expected_answer": "The learner should identify key concepts from the content.",
+                    "question_type": "factual"
+                },
+                {
+                    "question": "How would you use this information?",
+                    "expected_answer": "The learner should describe practical applications.",
+                    "question_type": "procedural"
+                }
+            ]
+
+
+def evaluate_direct_answer(user_answer, expected_answer, question_type=None):
+    """
+    Evaluate a user's answer to a direct question against the expected answer.
+    Returns a level (1-5) and feedback.
+
+    Parameters:
+    user_answer (dict): Dictionary containing the 'question' and 'answer'
+    expected_answer (str): The expected answer
+    question_type (str, optional): Type of question ('rationale', 'factual', or 'procedural')
+                                  Defaults to 'factual' if not provided
+    """
+    # Ensure question_type has a value
+    if question_type is None:
+        question_type = 'factual'
+
+    prompt = (
+        f"Evaluate this user's answer against the expected answer for a {question_type} question. "
+        f"Provide an understanding level from 1-5 (where 1 is minimal understanding and 5 is excellent understanding). "
+        f"Also provide specific feedback on what was good and what could be improved. "
+        f"Format your response as a JSON object with keys 'understanding_level' (integer 1-5) and 'feedback' (string). "
+        f"\n\nQuestion: {user_answer['question']}\n\n"
+        f"Expected Answer: {expected_answer}\n\n"
+        f"User's Answer: {user_answer['answer']}"
+    )
+
+    try:
+        response, _ = get_groq_response(
+            prompt,
+            st.session_state.user_data['age'],
+            st.session_state.user_data['interest'],
+            st.session_state.user_data['experience'],
+            conversation_history=None
+        )
+
+        # Try to extract just the JSON part if there's extra text
+        start_index = response.find('{')
+        end_index = response.rfind('}')
+        if start_index != -1 and end_index != -1:
+            json_string = response[start_index:end_index + 1]
+            evaluation = json.loads(json_string)
+        else:
+            evaluation = json.loads(response)
+
+        understanding_level = evaluation.get("understanding_level", 1)
+
+        # Add a 'score' key for backward compatibility with any legacy code
+        result = {
+            "understanding_level": understanding_level,
+            "feedback": evaluation.get("feedback", "No feedback provided."),
+            "score": understanding_level * 20  # Convert 1-5 scale to 0-100 scale for compatibility
+        }
+
+        return result
+    except Exception as e:
+        st.error(f"Error parsing evaluation: {str(e)}")
+        return {
+            "understanding_level": 1,
+            "feedback": "Error evaluating answer. Please try again.",
+            "score": 20  # Default score for error case (1 * 20)
+        }
+
+
+def get_question_explanation(question, correct_answer):
+    """
+    Get an in-depth explanation from the LLM as to why the given correct answer
+    is correct for the provided question.
+    """
+    prompt = (
+        f"Provide an in-depth explanation for the following question:\n\n"
+        f"Question: {question}\n\n"
+        f"Explain why the correct answer is '{correct_answer}' and highlight the key points that support it."
+    )
+    explanation, _ = get_groq_response(
+        prompt,
+        st.session_state.user_data['age'],
+        st.session_state.user_data['interest'],
+        st.session_state.user_data['experience'],
+        conversation_history=None
+    )
+    return explanation
+
+
+############################################
+# Session State & User Data Functions
+############################################
+
+def init_session_state():
+    """Initialize session state variables"""
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    if 'user_data' not in st.session_state:
+        st.session_state.user_data = {}
+    if 'scores' not in st.session_state:
+        st.session_state.scores = []
+    if 'system_response' not in st.session_state:
+        st.session_state.system_response = ""
+    if 'evaluation_history' not in st.session_state:
+        st.session_state.evaluation_history = []
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'quiz_questions' not in st.session_state:
+        st.session_state.quiz_questions = []
+    if 'direct_questions' not in st.session_state:
+        st.session_state.direct_questions = []
+    if 'current_question_index' not in st.session_state:
+        st.session_state.current_question_index = 0
+    if 'direct_answer_evaluations' not in st.session_state:
+        st.session_state.direct_answer_evaluations = []
+    if 'topic_complexity' not in st.session_state:
+        st.session_state.topic_complexity = {}
+    if 'understanding_report' not in st.session_state:
+        st.session_state.understanding_report = {}
+
+
+def save_user_data(username, password, age, interest, experience):
+    """Save user data to a JSON file"""
+    try:
+        users = {}
+        if os.path.exists('users.json'):
+            with open('users.json', 'r') as f:
+                users = json.load(f)
+        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+        users[username] = {
+            'password': hashed_password,
+            'age': age,
+            'interest': interest,
+            'experience': experience,
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        with open('users.json', 'w') as f:
+            json.dump(users, f)
+        return True
+    except Exception as e:
+        st.error(f"Error saving user data: {str(e)}")
+        return False
+
+
+def verify_user(username, password):
+    """Verify user credentials"""
+    try:
+        if os.path.exists('users.json'):
+            with open('users.json', 'r') as f:
+                users = json.load(f)
+                if username in users:
+                    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+                    if users[username]['password'] == hashed_password:
+                        return users[username]
+        return None
+    except Exception as e:
+        st.error(f"Error verifying user: {str(e)}")
+        return None
+
+
+############################################
+# Application UI: Login & Main Interface
+############################################
+
+def login_page():
+    """Display login page"""
+    st.title("Interactive Learning System")
+    st.header("Login / Register")
+    tab1, tab2 = st.tabs(["Login", "Register"])
+    with tab1:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Login")
+            if submitted:
+                user_data = verify_user(username, password)
+                if user_data:
+                    st.session_state.logged_in = True
+                    st.session_state.user_data = user_data
+                    st.success("Login successful!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+    with tab2:
+        with st.form("register_form"):
+            new_username = st.text_input("Choose Username")
+            new_password = st.text_input("Choose Password", type="password")
+            age = st.number_input("Age", min_value=5, max_value=100, value=25)
+            interest = st.text_input("Area of Interest/Hobby")
+            experience = st.text_input("Professional Experience")
+            submitted = st.form_submit_button("Register")
+            if submitted:
+                if save_user_data(new_username, new_password, age, interest, experience):
+                    st.success("Registration successful! Please login.")
+                else:
+                    st.error("Registration failed")
+
+
+def main_application():
+    """Main application interface"""
+    st.title(f"Welcome {st.session_state.user_data.get('interest', 'Enthusiast')}!")
+    st.sidebar.header("Your Profile")
+    st.sidebar.write(f"Age: {st.session_state.user_data.get('age', '')}")
+    st.sidebar.write(f"Interest: {st.session_state.user_data.get('interest', '')}")
+    st.sidebar.write(f"Experience: {st.session_state.user_data.get('experience', '')}")
+    tab1, tab2 = st.tabs(["Q&A Mode", "Learning Assessment Mode"])
+
+    ############################################
+    # Q&A Mode: Ask Questions, Follow-ups, and In-depth Explanations
+    ############################################
+    with tab1:
+        st.header("Ask Questions")
+        with st.form(key='qa_form'):
+            question = st.text_input("Enter your question:")
+            submit_qa = st.form_submit_button("Get Answer")
+            if submit_qa and question:
+                conversation_history = st.session_state.chat_history if st.session_state.chat_history else None
+                response, conversation_history = get_groq_response(
+                    question,
+                    st.session_state.user_data['age'],
+                    st.session_state.user_data['interest'],
+                    st.session_state.user_data['experience'],
+                    conversation_history
+                )
+                st.session_state.chat_history = conversation_history
+                st.markdown("### Answer")
+                st.write(response)
+        if st.session_state.chat_history:
+            with st.form(key='followup_form'):
+                followup_question = st.text_input("Enter a follow-up question (optional):")
+                submit_followup = st.form_submit_button("Submit Follow-up")
+                if submit_followup and followup_question:
+                    response, conversation_history = get_groq_response(
+                        followup_question,
+                        st.session_state.user_data['age'],
+                        st.session_state.user_data['interest'],
+                        st.session_state.user_data['experience'],
+                        st.session_state.chat_history
+                    )
+                    st.session_state.chat_history = conversation_history
+                    st.markdown("### Follow-up Answer")
+                    st.write(response)
+            with st.form(key='in_depth_form'):
+                highlighted_text = st.text_area(
+                    "Paste the text (from the answer above) you want more details on (simulate highlighting):")
+                submit_in_depth = st.form_submit_button("Get In-depth Explanation")
+                if submit_in_depth and highlighted_text:
+                    prompt = f"Provide a more in-depth explanation on the following text: {highlighted_text}"
+                    in_depth_response, _ = get_groq_response(
+                        prompt,
+                        st.session_state.user_data['age'],
+                        st.session_state.user_data['interest'],
+                        st.session_state.user_data['experience'],
+                        conversation_history=None
+                    )
+                    st.markdown("#### In-depth Explanation")
+                    st.write(in_depth_response)
+
+    ############################################
+    # Learning Assessment Mode: Learning Topic, Quiz & Direct Questioning
+    ############################################
+    with tab2:
+        st.header("Learning Assessment")
+
+        # Form to set the learning topic
+        with st.form(key='learning_form'):
+            learning_question = st.text_input("What would you like to learn about?")
+            submit_learning = st.form_submit_button("Start Learning")
+            if submit_learning and learning_question:
+                system_response, _ = get_groq_response(
+                    learning_question,
+                    st.session_state.user_data['age'],
+                    st.session_state.user_data['interest'],
+                    st.session_state.user_data['experience'],
+                    conversation_history=None
+                )
+                st.session_state.system_response = system_response
+                # Reset assessment data when a new topic is loaded
+                st.session_state.direct_questions = []
+                st.session_state.current_question_index = 0
+                st.session_state.direct_answer_evaluations = []
+                st.success("Learning topic loaded!")
+
+        # Display the system response if available; otherwise prompt the user
+        if st.session_state.system_response:
+            st.markdown("### Review the Topic")
+            st.write(st.session_state.system_response)
+
+            st.markdown("### Assessment Options")
+            assessment_type = st.radio(
+                "Choose an assessment method:",
+                ["Multiple Choice Quiz", "Direct Questions Assessment"]
+            )
+
+            # Multiple Choice Quiz Option
+            if assessment_type == "Multiple Choice Quiz":
+                if st.button("Generate Quiz Questions"):
+                    quiz_questions = generate_assessment_questions(st.session_state.system_response)
+                    st.session_state.quiz_questions = quiz_questions
+
+                if st.session_state.quiz_questions:
+                    st.subheader("Answer the following questions:")
+                    user_answers = {}
+                    for idx, question_data in enumerate(st.session_state.quiz_questions):
+                        st.markdown(f"**Q{idx + 1}: {question_data['question']}**")
+                        option = st.radio("Choose your answer:", question_data['options'], key=f"quiz_{idx}")
+                        user_answers[idx] = option
+
+                    if st.button("Submit Quiz"):
+                        correct_count = 0
+                        st.markdown("### Quiz Results")
+                        for idx, question_data in enumerate(st.session_state.quiz_questions):
+                            correct_answer = question_data['answer']
+                            user_answer = user_answers.get(idx)
+                            if user_answer == correct_answer:
+                                correct_count += 1
+                                st.write(f"Question {idx + 1}: Correct!")
+                            else:
+                                st.write(f"Question {idx + 1}: Incorrect. The correct answer is: {correct_answer}")
+                                explanation = get_question_explanation(question_data['question'], correct_answer)
+                                st.write("Explanation:", explanation)
+                        score = (correct_count / len(st.session_state.quiz_questions)) * 100
+                        understanding_level = round((score / 100) * 5)  # Convert to 1-5 scale
+                        st.write(f"**Your Understanding Level:** {understanding_level}/5")
+
+                        # Save to history (keep score internally but display level)
+                        st.session_state.scores.append({
+                            'timestamp': datetime.now(),
+                            'score': score,
+                            'level': understanding_level,
+                            'question': "Multiple Choice Quiz"
+                        })
+
+            # Direct Questions Assessment Option
+            elif assessment_type == "Direct Questions Assessment":
+                if not st.session_state.direct_questions:
+                    if st.button("Start Direct Questions Assessment"):
+                        direct_questions = generate_direct_questions(st.session_state.system_response)
+                        st.session_state.direct_questions = direct_questions
+                        st.session_state.current_question_index = 0
+                        st.session_state.direct_answer_evaluations = []
+
+                # If we have direct questions, display the current one
+                if st.session_state.direct_questions:
+                    # Display progress
+                    total_questions = len(st.session_state.direct_questions)
+                    current_index = st.session_state.current_question_index
+
+                    if current_index < total_questions:
+                        st.progress((current_index) / total_questions)
+                        st.subheader(f"Question {current_index + 1} of {total_questions}")
+
+                        current_question = st.session_state.direct_questions[current_index]
+                        st.markdown(f"**{current_question['question']}**")
+
+                        # Check if the current question has been answered already
+                        already_answered = any(eval_item['question_index'] == current_index
+                                               for eval_item in st.session_state.direct_answer_evaluations)
+
+                        if not already_answered:
+                            with st.form(key=f"direct_question_form_{current_index}"):
+                                user_answer = st.text_area("Your answer:", height=150)
+                                submitted = st.form_submit_button("Submit Answer")
+
+                                if submitted and user_answer:
+                                    # Evaluate the answer
+                                    evaluation = evaluate_direct_answer(
+                                        {"question": current_question['question'], "answer": user_answer},
+                                        current_question['expected_answer']
+                                    )
+
+                                    # Store the evaluation
+                                    st.session_state.direct_answer_evaluations.append({
+                                        'question_index': current_index,
+                                        'question': current_question['question'],
+                                        'user_answer': user_answer,
+                                        'expected_answer': current_question['expected_answer'],
+                                        'score': evaluation['score'],
+                                        'feedback': evaluation['feedback']
+                                    })
+
+                                    # Force rerun to show feedback and navigation
+                                    st.rerun()
+                        else:
+                            # Get the evaluation for this question
+                            current_eval = next(eval_item for eval_item in st.session_state.direct_answer_evaluations
+                                                if eval_item['question_index'] == current_index)
+
+                            # Display user's answer and feedback
+                            st.text_area("Your answer:", value=current_eval['user_answer'], height=150, disabled=True)
+                            st.markdown("### Feedback")
+                            st.write(f"**Score:** {current_eval['score']}/100")
+                            st.write(current_eval['feedback'])
+
+                            # Navigation buttons (outside of any form)
+                            cols = st.columns([1, 1])
+                            if current_index > 0:
+                                if cols[0].button("Previous Question"):
+                                    st.session_state.current_question_index -= 1
+                                    st.rerun()
+
+                            if current_index < total_questions - 1:
+                                if cols[1].button("Next Question"):
+                                    st.session_state.current_question_index += 1
+                                    st.rerun()
+                            else:
+                                st.success("You've completed all the questions!")
+
+                    # If all questions are answered, show summary
+                    if current_index >= total_questions - 1 and st.session_state.direct_answer_evaluations:
+                        st.markdown("### Assessment Summary")
+
+                        # Calculate overall score
+                        if st.session_state.direct_answer_evaluations:
+                            total_score = sum(
+                                eval_item['score'] for eval_item in st.session_state.direct_answer_evaluations)
+                            avg_score = total_score / len(st.session_state.direct_answer_evaluations)
+
+                            st.write(f"**Overall Score:** {avg_score:.1f}/100")
+
+                            # Create a dataframe for the summary
+                            summary_df = pd.DataFrame(st.session_state.direct_answer_evaluations)
+                            summary_df = summary_df[['question', 'score', 'feedback']]
+                            st.dataframe(summary_df)
+
+                            # Add to history
+                            avg_level = sum(eval_item.get('understanding_level', 0) for eval_item in
+                                            st.session_state.direct_answer_evaluations) / max(1,
+                                                                                              len(st.session_state.direct_answer_evaluations))
+                            st.session_state.scores.append({
+                                'timestamp': datetime.now(),
+                                'score': avg_level * 20,  # Convert level (1-5) to score (0-100)
+                                'level': avg_level,
+                                'question': "Direct Questions Assessment"
+                            })
+
+                            # Reset button (outside of form context)
+                            if st.button("Start New Assessment"):
+                                st.session_state.direct_questions = []
+                                st.session_state.current_question_index = 0
+                                st.session_state.direct_answer_evaluations = []
+                                st.rerun()
+        else:
+            st.info("Please click 'Start Learning' by entering a topic above to get content for assessment.")
+
+
+def main():
+    """Main program execution"""
+    init_session_state()
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        main_application()
+        if st.sidebar.button("Logout"):
+            st.session_state.logged_in = False
+            st.rerun()
+
+
+if __name__ == "__main__":
+    main()
