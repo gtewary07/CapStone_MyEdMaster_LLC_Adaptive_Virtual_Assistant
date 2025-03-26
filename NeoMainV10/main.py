@@ -1,0 +1,726 @@
+import os
+import streamlit as st
+import time
+import json
+import hashlib
+from datetime import datetime
+import pandas as pd
+from groq import Groq
+import PyPDF2
+import io
+
+# Import from other files
+from assessment import (
+    get_groq_response, determine_topic_complexity,
+    generate_assessment_questions, generate_direct_questions,
+    evaluate_direct_answer, get_question_explanation, extract_text_from_pdf
+)
+from report import (
+    generate_understanding_report, display_learning_report,
+    create_understanding_radar_chart, create_progress_chart
+)
+
+# Initialize Groq client
+client = Groq(
+    api_key="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"
+)
+
+
+############################################
+# Session State & User Data Functions
+############################################
+
+def init_session_state():
+    """Initialize session state variables"""
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    if 'user_data' not in st.session_state:
+        st.session_state.user_data = {}
+    if 'scores' not in st.session_state:
+        st.session_state.scores = []
+    if 'system_response' not in st.session_state:
+        st.session_state.system_response = ""
+    if 'evaluation_history' not in st.session_state:
+        st.session_state.evaluation_history = []
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'quiz_questions' not in st.session_state:
+        st.session_state.quiz_questions = []
+    if 'direct_questions' not in st.session_state:
+        st.session_state.direct_questions = []
+    if 'current_question_index' not in st.session_state:
+        st.session_state.current_question_index = 0
+    if 'direct_answer_evaluations' not in st.session_state:
+        st.session_state.direct_answer_evaluations = []
+    if 'topic_complexity' not in st.session_state:
+        st.session_state.topic_complexity = {}
+    if 'understanding_report' not in st.session_state:
+        st.session_state.understanding_report = {}
+    if 'current_tab' not in st.session_state:
+        st.session_state.current_tab = 0
+    if 'current_topic' not in st.session_state:
+        st.session_state.current_topic = ""
+    if 'learning_chat_history' not in st.session_state:
+        st.session_state.learning_chat_history = []
+    if 'pdf_text' not in st.session_state:
+        st.session_state.pdf_text = ""
+    if 'pdf_summary' not in st.session_state:
+        st.session_state.pdf_summary = ""
+
+
+def save_user_data(username, password, age, interest, experience):
+    """Save user data to a JSON file"""
+    try:
+        users = {}
+        if os.path.exists('users.json'):
+            with open('users.json', 'r') as f:
+                users = json.load(f)
+        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+        users[username] = {
+            'password': hashed_password,
+            'age': age,
+            'interest': interest,
+            'experience': experience,
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        with open('users.json', 'w') as f:
+            json.dump(users, f)
+        return True
+    except Exception as e:
+        st.error(f"Error saving user data: {str(e)}")
+        return False
+
+
+def verify_user(username, password):
+    """Verify user credentials"""
+    try:
+        if os.path.exists('users.json'):
+            with open('users.json', 'r') as f:
+                users = json.load(f)
+                if username in users:
+                    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+                    if users[username]['password'] == hashed_password:
+                        return users[username]
+        return None
+    except Exception as e:
+        st.error(f"Error verifying user: {str(e)}")
+        return None
+
+
+############################################
+# PDF Processing Functions
+############################################
+
+def process_uploaded_pdf(uploaded_file):
+    """Process uploaded PDF file and return the extracted text"""
+    if uploaded_file is not None:
+        try:
+            # Extract text from PDF
+            pdf_text = extract_text_from_pdf(uploaded_file)
+
+            # Generate summary
+            summary_prompt = f"Generate a comprehensive summary of the following text extracted from a PDF. Focus on the main concepts, key points, and important details. Make the summary educational and suitable for learning purposes:\n\n{pdf_text[:10000]}"  # Limit text length
+
+            summary, _ = get_groq_response(
+                summary_prompt,
+                st.session_state.user_data['age'],
+                st.session_state.user_data['interest'],
+                st.session_state.user_data['experience'],
+                conversation_history=None,
+                client=client
+            )
+
+            return pdf_text, summary
+        except Exception as e:
+            st.error(f"Error processing PDF: {str(e)}")
+            return "", "Error generating summary."
+    return "", ""
+
+
+############################################
+# Application UI: Login & Main Interface
+############################################
+
+def login_page():
+    """Display login page"""
+    st.title("Interactive Learning System")
+    st.header("Login / Register")
+    tab1, tab2 = st.tabs(["Login", "Register"])
+    with tab1:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Login")
+            if submitted:
+                user_data = verify_user(username, password)
+                if user_data:
+                    st.session_state.logged_in = True
+                    st.session_state.user_data = user_data
+                    st.success("Login successful!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+    with tab2:
+        with st.form("register_form"):
+            new_username = st.text_input("Choose Username")
+            new_password = st.text_input("Choose Password", type="password")
+            age = st.number_input("Age", min_value=5, max_value=100, value=25)
+            interest = st.text_input("Area of Interest/Hobby")
+            experience = st.text_input("Professional Experience")
+            submitted = st.form_submit_button("Register")
+            if submitted:
+                if save_user_data(new_username, new_password, age, interest, experience):
+                    st.success("Registration successful! Please login.")
+                else:
+                    st.error("Registration failed")
+
+
+def main_application():
+    """Main application interface"""
+    st.title(f"Welcome {st.session_state.user_data.get('interest', 'Enthusiast')}!")
+    st.sidebar.header("Your Profile")
+    st.sidebar.write(f"Age: {st.session_state.user_data.get('age', '')}")
+    st.sidebar.write(f"Interest: {st.session_state.user_data.get('interest', '')}")
+    st.sidebar.write(f"Experience: {st.session_state.user_data.get('experience', '')}")
+
+    # Add learning progress summary in sidebar if available
+    if 'understanding_report' in st.session_state and st.session_state.understanding_report:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Learning Progress")
+        report = st.session_state.understanding_report
+
+        # Display overall level with color
+        level = report.get('overall_level', 0)
+        level_color = {
+            0: "gray",
+            1: "red",
+            2: "orange",
+            3: "blue",
+            4: "green",
+            5: "purple"
+        }.get(level, "gray")
+
+        level_descriptions = {
+            0: "Not Assessed",
+            1: "Minimal",
+            2: "Basic",
+            3: "Moderate",
+            4: "Good",
+            5: "Excellent"
+        }
+
+        st.sidebar.markdown(
+            f"<div style='text-align: center; padding: 10px; border-radius: 5px; background-color: {level_color}20;'>"
+            f"<span style='font-size: 24px; color: {level_color};'>{level}/5</span><br>"
+            f"<span style='color: {level_color};'>{level_descriptions[level]}</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+
+        # Show dimension scores
+        if all(dim in report for dim in ['rationale_level', 'factual_level', 'procedural_level']):
+            st.sidebar.markdown("<small>Dimension Scores:</small>", unsafe_allow_html=True)
+            st.sidebar.markdown(
+                f"<small>Rationale: {report['rationale_level']}/5 • "
+                f"Factual: {report['factual_level']}/5 • "
+                f"Procedural: {report['procedural_level']}/5</small>",
+                unsafe_allow_html=True
+            )
+
+    # Create main tabs
+    tab1, tab2, tab3 = st.tabs(["Q&A Mode", "Learning Assessment Mode", "Learning Progress Report"])
+
+    # Store the current tab index in session state if not already present
+    if 'current_tab' not in st.session_state:
+        st.session_state.current_tab = 0
+
+    ############################################
+    # Q&A Mode: Ask Questions, Follow-ups, and In-depth Explanations
+    ############################################
+    with tab1:
+        st.header("Ask Questions")
+        with st.form(key='qa_form'):
+            question = st.text_input("Enter your question:")
+            submit_qa = st.form_submit_button("Get Answer")
+            if submit_qa and question:
+                conversation_history = st.session_state.chat_history if st.session_state.chat_history else None
+                response, conversation_history = get_groq_response(
+                    question,
+                    st.session_state.user_data['age'],
+                    st.session_state.user_data['interest'],
+                    st.session_state.user_data['experience'],
+                    conversation_history,
+                    client
+                )
+                st.session_state.chat_history = conversation_history
+                st.markdown("### Answer")
+                st.write(response)
+        if st.session_state.chat_history:
+            with st.form(key='followup_form'):
+                followup_question = st.text_input("Enter a follow-up question (optional):")
+                submit_followup = st.form_submit_button("Submit Follow-up")
+                if submit_followup and followup_question:
+                    response, conversation_history = get_groq_response(
+                        followup_question,
+                        st.session_state.user_data['age'],
+                        st.session_state.user_data['interest'],
+                        st.session_state.user_data['experience'],
+                        st.session_state.chat_history,
+                        client
+                    )
+                    st.session_state.chat_history = conversation_history
+                    st.markdown("### Follow-up Answer")
+                    st.write(response)
+            with st.form(key='in_depth_form'):
+                highlighted_text = st.text_area(
+                    "Paste the text (from the answer above) you want more details on (simulate highlighting):")
+                submit_in_depth = st.form_submit_button("Get In-depth Explanation")
+                if submit_in_depth and highlighted_text:
+                    prompt = f"Provide a more in-depth explanation on the following text: {highlighted_text}"
+                    in_depth_response, _ = get_groq_response(
+                        prompt,
+                        st.session_state.user_data['age'],
+                        st.session_state.user_data['interest'],
+                        st.session_state.user_data['experience'],
+                        conversation_history=None,
+                        client=client
+                    )
+                    st.markdown("#### In-depth Explanation")
+                    st.write(in_depth_response)
+
+    ############################################
+    # Learning Assessment Mode: Learning Topic, Quiz & Direct Questioning
+    ############################################
+    with tab2:
+        st.header("Learning Assessment")
+
+        # Form to set the learning topic or upload PDF
+        with st.form(key='learning_form'):
+            learning_question = st.text_input("What would you like to learn about?")
+            uploaded_file = st.file_uploader("Or upload a PDF to learn from", type="pdf",
+                                             help="Upload a PDF document to extract content for learning")
+            submit_learning = st.form_submit_button("Start Learning")
+
+            if submit_learning:
+                if uploaded_file is not None:
+                    # Process PDF and generate summary
+                    pdf_text, pdf_summary = process_uploaded_pdf(uploaded_file)
+                    st.session_state.pdf_text = pdf_text
+                    st.session_state.pdf_summary = pdf_summary
+                    st.session_state.system_response = pdf_summary
+                    st.session_state.current_topic = uploaded_file.name
+                elif learning_question:
+                    # Enhanced system response prompt
+                    enhanced_prompt = (
+                        f"Provide a comprehensive educational response on the topic: {learning_question}. "
+                        f"Include key concepts, principles, examples, and practical applications. "
+                        f"Structure the response with clear sections, using headings where appropriate. "
+                        f"Make sure to adapt the content for a {st.session_state.user_data['age']} year old "
+                        f"with interest in {st.session_state.user_data['interest']} and "
+                        f"{st.session_state.user_data['experience']} experience. "
+                        f"The response should be educational, engaging, and informative."
+                    )
+
+                    system_response, learning_chat_history = get_groq_response(
+                        enhanced_prompt,
+                        st.session_state.user_data['age'],
+                        st.session_state.user_data['interest'],
+                        st.session_state.user_data['experience'],
+                        conversation_history=None,
+                        client=client
+                    )
+                    st.session_state.system_response = system_response
+                    st.session_state.learning_chat_history = learning_chat_history
+                    st.session_state.current_topic = learning_question
+                else:
+                    st.warning("Please either enter a learning topic or upload a PDF file.")
+                    st.rerun()
+
+                # Analyze topic complexity to determine appropriate number of questions
+                if st.session_state.system_response:
+                    st.session_state.topic_complexity = determine_topic_complexity(st.session_state.system_response,
+                                                                                   client)
+
+                    # Reset assessment data when a new topic is loaded
+                    st.session_state.direct_questions = []
+                    st.session_state.current_question_index = 0
+                    st.session_state.direct_answer_evaluations = []
+                    st.success("Learning topic loaded!")
+
+        # Display the system response if available
+        if st.session_state.system_response:
+            st.markdown("### Review the Topic")
+            st.write(st.session_state.system_response)
+
+            # Add follow-up question section for clarification
+            st.markdown("### Ask Follow-up Questions")
+            st.info("If you need clarification or have questions about the topic, ask below.")
+
+            with st.form(key='learning_followup_form'):
+                followup_question = st.text_input("Enter your question about this topic:")
+                submit_followup = st.form_submit_button("Get Answer")
+
+                if submit_followup and followup_question:
+                    # Get conversation history or create new one if needed
+                    conversation_history = st.session_state.learning_chat_history if st.session_state.learning_chat_history else []
+
+                    # Add context about the original topic
+                    if len(conversation_history) <= 2:  # If it's a new conversation or has just the first Q&A
+                        context_prompt = (
+                            f"The user is learning about '{st.session_state.current_topic}'. "
+                            f"Please provide a detailed and educational answer to their follow-up question."
+                        )
+                        conversation_history.append({"role": "system", "content": context_prompt})
+
+                    response, updated_history = get_groq_response(
+                        followup_question,
+                        st.session_state.user_data['age'],
+                        st.session_state.user_data['interest'],
+                        st.session_state.user_data['experience'],
+                        conversation_history,
+                        client
+                    )
+
+                    st.session_state.learning_chat_history = updated_history
+                    st.markdown("### Answer")
+                    st.write(response)
+
+            # Show previous follow-up questions and answers if they exist
+            if len(st.session_state.learning_chat_history) > 2:  # If we have follow-up Q&As
+                st.markdown("### Previous Questions")
+
+                # Display only user questions and assistant responses (skip system messages)
+                qa_pairs = []
+                for i in range(1, len(st.session_state.learning_chat_history), 2):  # Start from user message
+                    if i + 1 < len(st.session_state.learning_chat_history):  # Ensure we have a pair
+                        user_msg = st.session_state.learning_chat_history[i]["content"]
+                        assistant_msg = st.session_state.learning_chat_history[i + 1]["content"]
+                        qa_pairs.append((user_msg, assistant_msg))
+
+                # Display the last 3 Q&A pairs (if available)
+                for i, (question, answer) in enumerate(qa_pairs[-3:]):
+                    with st.expander(f"Q: {question[:50]}..." if len(question) > 50 else f"Q: {question}"):
+                        st.write(answer)
+
+            st.markdown("### Assessment Options")
+            assessment_type = st.radio(
+                "Choose an assessment method:",
+                ["Multiple Choice Quiz", "Direct Questions Assessment"]
+            )
+
+            # Multiple Choice Quiz Option
+            if assessment_type == "Multiple Choice Quiz":
+                if st.button("Generate Quiz Questions"):
+                    quiz_questions = generate_assessment_questions(st.session_state.system_response, client)
+                    st.session_state.quiz_questions = quiz_questions
+
+                if st.session_state.quiz_questions:
+                    st.subheader("Answer the following questions:")
+                    user_answers = {}
+                    for idx, question_data in enumerate(st.session_state.quiz_questions):
+                        st.markdown(f"**Q{idx + 1}: {question_data['question']}**")
+                        option = st.radio("Choose your answer:", question_data['options'], key=f"quiz_{idx}")
+                        user_answers[idx] = option
+
+                    if st.button("Submit Quiz"):
+                        correct_count = 0
+                        st.markdown("### Quiz Results")
+                        for idx, question_data in enumerate(st.session_state.quiz_questions):
+                            correct_answer = question_data['answer']
+                            user_answer = user_answers.get(idx)
+                            if user_answer == correct_answer:
+                                correct_count += 1
+                                st.write(f"Question {idx + 1}: Correct!")
+                            else:
+                                st.write(f"Question {idx + 1}: Incorrect. The correct answer is: {correct_answer}")
+                                explanation = get_question_explanation(question_data['question'], correct_answer,
+                                                                       client)
+                                st.write("Explanation:", explanation)
+                        score = (correct_count / len(st.session_state.quiz_questions)) * 100
+                        understanding_level = round((score / 100) * 5)  # Convert to 1-5 scale
+                        st.write(f"**Your Understanding Level:** {understanding_level}/5")
+
+                        # Save to history (keep score internally but display level)
+                        st.session_state.scores.append({
+                            'timestamp': datetime.now(),
+                            'score': score,
+                            'level': understanding_level,
+                            'question': "Multiple Choice Quiz",
+                            'topic': st.session_state.current_topic
+                        })
+
+            # Direct Questions Assessment Option
+            elif assessment_type == "Direct Questions Assessment":
+                if not st.session_state.direct_questions:
+                    # Use the topic complexity to determine number of questions
+                    num_questions = 5  # Default
+                    question_distribution = None
+
+                    if 'topic_complexity' in st.session_state and st.session_state.topic_complexity:
+                        complexity_info = st.session_state.topic_complexity
+                        num_questions = complexity_info.get('recommended_questions', 5)
+                        question_distribution = complexity_info.get('question_distribution')
+
+                    if st.button("Start Direct Questions Assessment"):
+                        direct_questions = generate_direct_questions(
+                            st.session_state.system_response,
+                            num_questions=num_questions,
+                            question_distribution=question_distribution,
+                            client=client
+                        )
+                        st.session_state.direct_questions = direct_questions
+                        st.session_state.current_question_index = 0
+                        st.session_state.direct_answer_evaluations = []
+
+                # If we have direct questions, display the current one
+                if st.session_state.direct_questions:
+                    # Display progress
+                    total_questions = len(st.session_state.direct_questions)
+                    current_index = st.session_state.current_question_index
+
+                    if current_index < total_questions:
+                        st.progress((current_index) / total_questions)
+                        st.subheader(f"Question {current_index + 1} of {total_questions}")
+
+                        current_question = st.session_state.direct_questions[current_index]
+                        question_type = current_question.get('question_type', 'factual')
+
+                        # Display question type badge
+                        question_type_color = {
+                            'rationale': 'blue',
+                            'factual': 'green',
+                            'procedural': 'orange'
+                        }.get(question_type, 'gray')
+
+                        st.markdown(
+                            f"<span style='background-color: {question_type_color}20; "
+                            f"color: {question_type_color}; padding: 3px 8px; border-radius: 10px; "
+                            f"font-size: 0.8em;'>{question_type.capitalize()} Question</span>",
+                            unsafe_allow_html=True
+                        )
+
+                        st.markdown(f"**{current_question['question']}**")
+
+                        # Check if the current question has been answered already
+                        already_answered = any(eval_item['question_index'] == current_index
+                                               for eval_item in st.session_state.direct_answer_evaluations)
+
+                        if not already_answered:
+                            with st.form(key=f"direct_question_form_{current_index}"):
+                                user_answer = st.text_area("Your answer:", height=150)
+                                submitted = st.form_submit_button("Submit Answer")
+
+                                if submitted and user_answer:
+                                    # Evaluate the answer
+                                    evaluation = evaluate_direct_answer(
+                                        {"question": current_question['question'], "answer": user_answer},
+                                        current_question['expected_answer'],
+                                        question_type,
+                                        client
+                                    )
+
+                                    # Store the evaluation with question type
+                                    st.session_state.direct_answer_evaluations.append({
+                                        'question_index': current_index,
+                                        'question': current_question['question'],
+                                        'question_type': question_type,
+                                        'user_answer': user_answer,
+                                        'expected_answer': current_question['expected_answer'],
+                                        'score': evaluation['score'],
+                                        'understanding_level': evaluation.get('understanding_level',
+                                                                              round(evaluation['score'] / 20)),
+                                        'feedback': evaluation['feedback']
+                                    })
+
+                                    # Force rerun to show feedback and navigation
+                                    st.rerun()
+                        else:
+                            # Get the evaluation for this question
+                            current_eval = next(eval_item for eval_item in st.session_state.direct_answer_evaluations
+                                                if eval_item['question_index'] == current_index)
+
+                            # Display user's answer and feedback
+                            st.text_area("Your answer:", value=current_eval['user_answer'], height=150, disabled=True)
+                            st.markdown("### Feedback")
+
+                            # Display understanding level if available
+                            if 'understanding_level' in current_eval:
+                                level = current_eval['understanding_level']
+                                level_descriptions = {
+                                    1: "Minimal",
+                                    2: "Basic",
+                                    3: "Moderate",
+                                    4: "Good",
+                                    5: "Excellent"
+                                }
+                                st.write(f"**Understanding Level:** {level}/5 - {level_descriptions.get(level, '')}")
+                            else:
+                                st.write(f"**Score:** {current_eval['score']}/100")
+
+                            st.write(current_eval['feedback'])
+
+                            # Navigation buttons (outside of any form)
+                            cols = st.columns([1, 1])
+                            if current_index > 0:
+                                if cols[0].button("Previous Question"):
+                                    st.session_state.current_question_index -= 1
+                                    st.rerun()
+
+                            if current_index < total_questions - 1:
+                                if cols[1].button("Next Question"):
+                                    st.session_state.current_question_index += 1
+                                    st.rerun()
+                            else:
+                                if cols[1].button("View Full Report"):
+                                    # Generate report and switch to the report tab
+                                    report = generate_understanding_report(st.session_state.direct_answer_evaluations)
+                                    st.session_state.understanding_report = report
+                                    st.rerun()
+                                st.success("You've completed all the questions!")
+
+                    # If all questions are answered, show summary
+                    if current_index >= total_questions - 1 and len(
+                            st.session_state.direct_answer_evaluations) == total_questions:
+                        st.markdown("### Assessment Summary")
+
+                        # Calculate overall score
+                        if st.session_state.direct_answer_evaluations:
+                            total_score = sum(
+                                eval_item['score'] for eval_item in st.session_state.direct_answer_evaluations)
+                            avg_score = total_score / len(st.session_state.direct_answer_evaluations)
+
+                            # Calculate average understanding level
+                            avg_level = sum(eval_item.get('understanding_level', round(eval_item['score'] / 20))
+                                            for eval_item in st.session_state.direct_answer_evaluations) / len(
+                                st.session_state.direct_answer_evaluations)
+                            avg_level = round(avg_level)
+
+                            level_descriptions = {
+                                1: "Minimal",
+                                2: "Basic",
+                                3: "Moderate",
+                                4: "Good",
+                                5: "Excellent"
+                            }
+
+                            # Display summary metrics
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Overall Score", f"{avg_score:.1f}/100")
+                            with col2:
+                                st.metric("Understanding Level",
+                                          f"{avg_level}/5 - {level_descriptions.get(avg_level, '')}")
+
+                            # Create a dataframe for the summary
+                            summary_df = pd.DataFrame(st.session_state.direct_answer_evaluations)
+
+                            # Add question type if available
+                            if 'question_type' in summary_df.columns:
+                                summary_df = summary_df[
+                                    ['question', 'question_type', 'score', 'understanding_level', 'feedback']]
+                            else:
+                                summary_df = summary_df[['question', 'score', 'feedback']]
+
+                            st.dataframe(summary_df)
+
+                            # Generate understanding report
+                            report = generate_understanding_report(st.session_state.direct_answer_evaluations)
+                            st.session_state.understanding_report = report
+
+                            # Add to history
+                            st.session_state.scores.append({
+                                'timestamp': datetime.now(),
+                                'score': avg_score,
+                                'level': avg_level,
+                                'question': "Direct Questions Assessment",
+                                'topic': st.session_state.get('current_topic', 'Unnamed Topic')
+                            })
+
+                            # Show full report button
+                            if st.button("View Full Learning Report"):
+                                # Switch to the report tab (this will be handled on the next rerun)
+                                st.rerun()
+
+                            # Reset button (outside of form context)
+                            if st.button("Start New Assessment"):
+                                st.session_state.direct_questions = []
+                                st.session_state.current_question_index = 0
+                                st.session_state.direct_answer_evaluations = []
+                                st.rerun()
+        else:
+            st.info(
+                "Please click 'Start Learning' by entering a topic above or uploading a PDF to get content for assessment.")
+
+    ############################################
+    # Learning Progress Report Tab
+    ############################################
+    with tab3:
+        st.header("📊 Learning Progress Report")
+
+        if ('understanding_report' in st.session_state and
+                st.session_state.understanding_report and
+                st.session_state.direct_answer_evaluations):
+
+            # Display the learning report
+            display_learning_report(
+                st.session_state.direct_answer_evaluations,
+                st.session_state.scores
+            )
+
+        elif st.session_state.scores:
+            # If we have scores history but not current assessment, show historical data
+            st.subheader("Learning History")
+
+            # Create a dataframe of the scores history
+            history_df = pd.DataFrame(st.session_state.scores)
+
+            # Format the timestamps
+            if 'timestamp' in history_df.columns:
+                history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
+                history_df['Date'] = history_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+
+            # Display the scores history
+            if 'level' in history_df.columns:
+                display_df = history_df[['Date', 'question', 'level', 'score']].rename(
+                    columns={
+                        'question': 'Assessment Type',
+                        'level': 'Understanding Level (1-5)',
+                        'score': 'Score (0-100)'
+                    }
+                )
+            else:
+                display_df = history_df[['Date', 'question', 'score']].rename(
+                    columns={
+                        'question': 'Assessment Type',
+                        'score': 'Score (0-100)'
+                    }
+                )
+
+            st.dataframe(display_df)
+
+            # Display progress chart
+            if len(history_df) > 1:  # Only show if we have multiple entries
+                st.subheader("Score Progress Over Time")
+                progress_chart_img = create_progress_chart(st.session_state.scores)
+                st.image(f"data:image/png;base64,{progress_chart_img}", use_container_width=True)
+
+            st.info("Complete a new assessment to generate a detailed understanding report.")
+
+        else:
+            st.info("No assessment data available yet. Complete an assessment to see your learning progress report.")
+
+
+def main():
+    """Main program execution"""
+    init_session_state()
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        main_application()
+        if st.sidebar.button("Logout"):
+            st.session_state.logged_in = False
+            st.rerun()
+
+
+if __name__ == "__main__":
+    main()
