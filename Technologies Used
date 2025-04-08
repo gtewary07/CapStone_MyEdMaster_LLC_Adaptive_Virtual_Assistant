@@ -1,0 +1,40 @@
+Explanation of Technologies in code 
+1. Purpose of the System
+	- This is an intelligent tutoring system that uses Large Language Models (LLMs) like Groq, OpenAI, or Anthropic to provide adaptive educational content to users based on their age, interests, and experience. It's built with support for fallback logic (i.e., basic default content) in case the API call fails.
+
+2. Key Components & Workflow
+	- 1. LLM Provider Enumeration
+	- 2. The code starts by defining which LLMs the system can use:
+	- 3. class LLMProvider(Enum):
+    		GROQ, OPENAI, ANTHROPIC, CUSTOM, LOCAL
+
+3. Conditional Imports
+	- The system imports libraries like Groq, matplotlib, reportlab, and PyPDF2 only if they are installed, to prevent runtime errors. This supports optional visualizations and PDF generation.
+
+4. Session State Management
+	- A function init_session_state() initializes many Streamlit session variables — such as whether the user is logged in, quiz and chat history, user data, selected LLM provider, etc. This ensures that user-specific data is preserved during the session.
+
+5. LLM Client Initialization
+	- The function get_llm_client() sets up the LLM client based on the selected provider (Groq, OpenAI, etc.), and pulls the corresponding API key from session state.
+
+6. Fallback Response
+	- generate_fallback_response(topic, difficulty_level)
+
+7. LLM Response Logic
+	- The main function get_llm_response() crafts a custom system prompt based on:
+	- 1. User's Age
+	- 2. Interest
+	- 3. Experience Level
+
+	- The prompt instructs the LLM to act as a personal tutor — breaking down concepts clearly, using analogies, questions, structure, and practical examples tailored to the user. It also uses optional conversation history for continuity.
+
+8. Technologies Used
+	- LLMs (Groq, OpenAI, etc.)
+
+	- Streamlit – Web UI & session management
+
+	- Matplotlib – Visualizations
+
+	- ReportLab / PyPDF2 – PDF generation and reading
+
+	- Numpy / JSON / hashlib – Data handling
