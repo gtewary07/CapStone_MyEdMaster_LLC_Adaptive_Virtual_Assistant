@@ -12,7 +12,7 @@ import re
 from enum import Enum
 
 
-st.set_page_config(page_title="CS/E-117", page_icon=👨, layout="centered", initial_sidebar_state="auto", menu_items=None)
+st.set_page_config(page_title="CS/E-117", page_icon=📝, layout="centered", initial_sidebar_state="auto", menu_items=None)
 
 # Check for required packages
 def check_dependency(package_name):
