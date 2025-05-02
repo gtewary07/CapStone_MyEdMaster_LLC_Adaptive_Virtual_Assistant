@@ -319,7 +319,7 @@ def add_learning_report_uploader():
             # Display user profile
             st.subheader("Learner Profile")
             st.write(f"Age: {user_data.get('age', 'Not found')}")
-            st.write(f"Experience: {user_data.get('experience', 'Not found')}")
+            st.write(f"Experience/Area of Interest: {user_data.get('experience', 'Not found')}")
 
             # Display understanding levels with color-coded badges
             st.subheader("Understanding Levels")
