@@ -60,6 +60,7 @@ class LLMProvider(Enum):
 # Conditional imports based on availability
 try:
     from groq import Groq
+    client = Groq(api_key="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")
 except ImportError:
     pass
 
