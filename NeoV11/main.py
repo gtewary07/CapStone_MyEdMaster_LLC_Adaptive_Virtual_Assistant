@@ -1006,7 +1006,7 @@ def login_page():
 
 def main_application():
     """Main application interface"""
-    st.title(f"Welcome {st.session_state.user_data.get('interest', 'Enthusiast')}!")
+    st.title(f"Welcome {st.session_state.user_data.get('username')}!")
     st.sidebar.header("Your Profile")
     st.sidebar.write(f"Age: {st.session_state.user_data.get('age', '')}")
     st.sidebar.write(f"Interest: {st.session_state.user_data.get('interest', '')}")
